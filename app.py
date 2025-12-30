@@ -338,37 +338,39 @@ def generate_step_content(api_key, step_key, use_search):
     # Configure Gemini
     genai.configure(api_key=api_key)
     
-    # Tool Configuration for Search
-    # Note: 'google_search_retrieval' enables Grounding with Google Search
-    # Tool Configuration for Search
-    tools = []
+    # Tool Configuration
+    # 修正重點 1: 確保 tools 變數正確初始化，若不使用搜尋則設為 None
+    tools = None
     if use_search:
-        tools = [{'google_search': {}}]  
+        tools = [{'google_search': {}}] 
     
-    # Use Gemini 1.5 Flash for speed and search capability
-    # Fallback to standard generation if search tool fails (handled by try/except)
-    model = genai.GenerativeModel('gemini-2.5-flash', tools=tools)
-    
-    prompt = create_prompt(step_key, st.session_state.input_data, st.session_state.results, use_search)
-    
-    system_instruction = """
-    You are an expert Policy Analyst following David Chrisinger's workflow.
-    Key Rules:
-    1. USE REAL DATA when requested.
-    2. Cite sources (Name, Year).
-    3. Be specific, not generic.
-    4. Do not hallucinate. If data isn't found, say so.
-    """
-    
+    # 修正重點 2: 使用正確的模型名稱 'gemini-1.5-flash'
+    # 注意: 'gemini-2.5-flash' 目前不存在，請使用 1.5 或 2.0-flash-exp
     try:
+        model = genai.GenerativeModel('gemini-1.5-flash', tools=tools)
+        
+        prompt = create_prompt(step_key, st.session_state.input_data, st.session_state.results, use_search)
+        
+        system_instruction = """
+        You are an expert Policy Analyst following David Chrisinger's workflow.
+        Key Rules:
+        1. USE REAL DATA when requested.
+        2. Cite sources (Name, Year).
+        3. Be specific, not generic.
+        4. Do not hallucinate. If data isn't found, say so.
+        """
+        
         with st.spinner(f"🤖 Generating {step_key.replace('_', ' ')}... {'(Searching Web 🌍)' if use_search else ''}"):
+            # 呼叫 generate_content
             response = model.generate_content(
                 f"{system_instruction}\n\nTASK:\n{prompt}",
                 generation_config=genai.types.GenerationConfig(temperature=0.3)
             )
-            # Handle potential grounding metadata (if search was used)
+            
+            # 處理回應
             text = response.text
-            # Simple formatting for [VERIFY] tags if not present
+            
+            # 簡單的格式處理
             if "[VERIFY]" not in text and use_search:
                 text += "\n\n*(Note: Please verify specific numbers against primary sources)*"
                 
@@ -377,6 +379,9 @@ def generate_step_content(api_key, step_key, use_search):
             
     except Exception as e:
         st.error(f"Generation Error: {str(e)}")
+        # 增加具體的除錯建議
+        if "400" in str(e):
+            st.warning("Tip: Check if your API Key supports the selected model, or try updating the google-generativeai library.")
         st.info("Tip: If you are using a free key, high-frequency search requests might be rate-limited.")
 
 # --- 6. SIDEBAR & INPUT ---
