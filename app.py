@@ -66,7 +66,7 @@ def run_chrisinger_workflow(api_key, user_json):
     genai.configure(api_key=api_key)
     
     # Use Gemini 1.5 Pro (Better for logic/reasoning)
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    model = genai.GenerativeModel('gemini-2.5-flash')
 
     # --- The System Prompt (Logic Hard-coding) ---
     system_prompt = f"""
