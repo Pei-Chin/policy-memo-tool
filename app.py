@@ -4,6 +4,10 @@ from google.generativeai.types import HarmCategory, HarmBlockThreshold
 import time
 import json
 
+# 必須放在 import 之後
+st.sidebar.error(f"目前 Google SDK 版本: {genai.__version__}") 
+# 這裡顯示的版本號如果是 0.4.x 或 0.5.x，代表伺服器沒更新成功
+
 # --- 1. CONFIGURATION & STYLES ---
 st.set_page_config(
     page_title="Policy Memo Architect (Pro)",
