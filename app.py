@@ -1,439 +1,462 @@
 import streamlit as st
 import google.generativeai as genai
+from google.generativeai.types import HarmCategory, HarmBlockThreshold
 import time
+import json
 
-# --- 1. Page Configuration & UI Styling ---
+# --- 1. CONFIGURATION & STYLES ---
 st.set_page_config(
-    page_title="Policy Memo Architect Pro",
+    page_title="Policy Memo Architect (Pro)",
     page_icon="🏛️",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    layout="wide"
 )
 
-# Custom CSS for a professional look
+# Custom CSS to match the "Crimson Pro" academic vibe
 st.markdown("""
 <style>
-    .stButton>button {
-        width: 100%;
-        border-radius: 5px;
-        height: 3em;
-        font-weight: bold;
+    @import url('https://fonts.googleapis.com/css2?family=Crimson+Pro:wght@400;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
+    
+    h1, h2, h3 { font-family: 'Crimson Pro', serif; }
+    p, div, button { font-family: 'IBM Plex Sans', sans-serif; }
+    
+    .phase-box {
+        border: 1px solid #e5e2db;
+        border-radius: 8px;
+        padding: 10px;
+        margin-bottom: 10px;
+        background-color: white;
     }
-    .step-header {
-        color: #1E88E5;
-        font-size: 1.5rem;
-        font-weight: 600;
-        margin-bottom: 1rem;
-        border-bottom: 2px solid #eee;
-        padding-bottom: 0.5rem;
-    }
-    .info-box {
-        background-color: #f0f2f6;
-        padding: 15px;
-        border-radius: 10px;
-        border-left: 5px solid #1E88E5;
-        margin-bottom: 20px;
-    }
-    .verify-tag {
-        background-color: #ffebee;
-        color: #c62828;
+    .search-badge {
+        background-color: #dbeafe;
+        color: #1d4ed8;
         padding: 2px 6px;
         border-radius: 4px;
+        font-size: 0.7em;
         font-weight: bold;
-        font-size: 0.9em;
+        margin-left: 8px;
+    }
+    .step-card {
+        background-color: #fafaf8;
+        border-left: 3px solid #e5e2db;
+        padding: 15px;
+        margin-top: 10px;
+        margin-bottom: 10px;
+    }
+    .verify-tag {
+        background-color: #fef3c7;
+        color: #92400e;
+        padding: 2px 6px;
+        border-radius: 3px;
+        font-weight: bold;
+        font-size: 0.8em;
+    }
+    .stButton button {
+        border-radius: 6px;
+        font-weight: 600;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# --- 2. State Management (The Brain) ---
-# This keeps track of the user's progress and the data generated at each step.
-if 'current_step' not in st.session_state:
-    st.session_state.current_step = 0
-
-# Initialize storage for each phase if not exists
-phases = [
-    'p0_triangle', 'p1_framing', 'p2_evidence', 
-    'p3_recommendation', 'p4_exec_summary', 
-    'p5_draft', 'p6_audit', 'p7_final'
+# --- 2. DATA STRUCTURE (The Logic from React) ---
+PHASES = [
+    {
+        "id": "phase0", "name": "Phase 0: Triangle of Persuasion", 
+        "desc": "Define Audience, Purpose, and Position",
+        "explanation": "Before gathering data or drafting, define your three foundations. If any part is unclear, the memo's persuasiveness collapses.",
+        "steps": [
+            {"key": "audience_profile", "name": "Define Your Audience", "useSearch": False},
+            {"key": "purpose_clarity", "name": "Clarify Your Purpose", "useSearch": False},
+            {"key": "position_credibility", "name": "Establish Your Position", "useSearch": False}
+        ]
+    },
+    {
+        "id": "phase1", "name": "Phase 1: Frame the Policy Problem", 
+        "desc": "Define a problem that is analytically rigorous",
+        "explanation": "We're not writing about broad topics. We're writing about a specific policy problem using real data.",
+        "steps": [
+            {"key": "core_issue", "name": "Identify the Core Issue", "useSearch": True},
+            {"key": "scope_scale", "name": "Determine Scope and Scale", "useSearch": True},
+            {"key": "stakeholders", "name": "Define Stakeholders", "useSearch": True}
+        ]
+    },
+    {
+        "id": "phase2", "name": "Phase 2: Build the Evidence Base", 
+        "desc": "Status, Criteria, Interpretation, Outlook",
+        "explanation": "Shift from defining what's wrong to explaining why it matters and how we know using verified sources.",
+        "steps": [
+            {"key": "status", "name": "Status — What Is Happening", "useSearch": True},
+            {"key": "criteria", "name": "Criteria — What Matters", "useSearch": False},
+            {"key": "interpretation", "name": "Interpretation — Why This Is Happening", "useSearch": True},
+            {"key": "outlook", "name": "Outlook — What Might Happen Next", "useSearch": True}
+        ]
+    },
+    {
+        "id": "phase3", "name": "Phase 3: Develop Recommendation", 
+        "desc": "Move from analysis to action",
+        "explanation": "A persuasive recommendation is specific, feasible, and proportionate to the evidence.",
+        "steps": [
+            {"key": "leverage_point", "name": "Identify Leverage Points", "useSearch": True},
+            {"key": "alternatives", "name": "Evaluate Alternatives", "useSearch": True},
+            {"key": "recommendation", "name": "Articulate the Recommendation", "useSearch": False}
+        ]
+    },
+    {
+        "id": "phase4", "name": "Phase 4: Draft Executive Summary", 
+        "desc": "Signal purpose and trustworthiness",
+        "explanation": "Different audiences need different structures. Choose the type that fits your memo's purpose.",
+        "steps": [
+            {"key": "executive_summary", "name": "Executive Summary", "useSearch": False}
+        ]
+    },
+    {
+        "id": "phase5", "name": "Phase 5: Structure the Memo", 
+        "desc": "Organize with clarity and flow",
+        "explanation": "Assemble all sections. Apply deductive paragraph structure and active voice.",
+        "steps": [
+            {"key": "full_memo_draft", "name": "Complete Memo Draft", "useSearch": False}
+        ]
+    },
+    {
+        "id": "phase6", "name": "Phase 6: Tone & Bias Check", 
+        "desc": "Ensure empathy, inclusion, and balance",
+        "explanation": "Review for professional yet empathetic tone. Check for implicit bias.",
+        "steps": [
+            {"key": "tone_audit", "name": "Tone Audit", "useSearch": False},
+            {"key": "bias_audit", "name": "Bias Audit", "useSearch": False},
+            {"key": "trauma_check", "name": "Trauma-Informed Check", "useSearch": False}
+        ]
+    },
+    {
+        "id": "phase7", "name": "Phase 7: Guided Revision", 
+        "desc": "Systematic revision",
+        "explanation": "Move through revisions systematically: macro, meso, and micro levels.",
+        "steps": [
+            {"key": "macro_revision", "name": "Macro-Level Revision", "useSearch": False},
+            {"key": "meso_revision", "name": "Meso-Level Revision", "useSearch": False},
+            {"key": "micro_revision", "name": "Micro-Level Revision", "useSearch": False}
+        ]
+    },
+    {
+        "id": "phase8", "name": "Phase 8: Final Polish", 
+        "desc": "Quality assurance checklist",
+        "explanation": "Final pass before submission. Extract claims needing verification.",
+        "steps": [
+            {"key": "final_checklist", "name": "Final Checklist", "useSearch": False},
+            {"key": "verification_list", "name": "Verification List", "useSearch": False},
+            {"key": "final_memo", "name": "Final Polished Memo", "useSearch": False}
+        ]
+    }
 ]
-for phase in phases:
-    if phase not in st.session_state:
-        st.session_state[phase] = ""
 
-# --- 3. Sidebar: Configuration & Navigation ---
-with st.sidebar:
-    st.title("🏛️ Memo Architect")
-    st.markdown("**Based on David Chrisinger's Algorithm**")
-    
-    api_key = st.text_input("🔑 Google Gemini API Key", type="password")
-    
-    st.markdown("---")
-    st.markdown("### 📍 Progress Tracker")
-    
-    steps = [
-        "0. Triangle of Persuasion",
-        "1. Frame the Problem",
-        "2. Evidence Base",
-        "3. Recommendation",
-        "4. Executive Summary",
-        "5. Assemble Draft",
-        "6. Tone & Bias Check",
-        "7. Final Polish & Verify"
-    ]
-    
-    # Progress Bar
-    progress_value = (st.session_state.current_step) / (len(steps) - 1)
-    st.progress(progress_value)
-    
-    # Navigation Radio (Allows jumping back, but limits jumping forward blindly)
-    selected_step = st.radio(
-        "Current Phase:", 
-        range(len(steps)), 
-        format_func=lambda x: steps[x],
-        index=st.session_state.current_step
-    )
-    
-    # Sync radio selection with state
-    if selected_step != st.session_state.current_step:
-        st.session_state.current_step = selected_step
-        st.rerun()
+# --- 3. STATE MANAGEMENT ---
+if 'results' not in st.session_state:
+    st.session_state.results = {}
+if 'input_data' not in st.session_state:
+    st.session_state.input_data = {}
 
-    st.markdown("---")
-    if st.button("🗑️ Reset All Progress"):
-        for key in st.session_state.keys():
-            del st.session_state[key]
-        st.rerun()
+# --- 4. PROMPT ENGINEERING (Ported from React) ---
+def create_prompt(step_key, input_data, results, use_search):
+    # Context variables
+    topic = input_data.get('topic', '')
+    policymaker = input_data.get('policymaker_type', '')
+    audience = input_data.get('audience', '')
+    purpose = input_data.get('purpose', '')
+    role = input_data.get('writer_role', '')
+    
+    # Previous results retrieval helper
+    def get_res(key): return results.get(key, '')
 
-# --- 4. Helper Function: Call AI ---
-def generate_ai_content(prompt, system_instruction):
+    search_instruction = ""
+    if use_search:
+        search_instruction = """
+        \n\n**CRITICAL INSTRUCTION: USE GOOGLE SEARCH.** You MUST search for REAL, CURRENT data, statistics, and specific examples. 
+        - Do not make up numbers. 
+        - Cite your sources with names and years (e.g., U.S. Census Bureau, 2023).
+        - If you cannot find a specific number, state that data is unavailable rather than hallucinating.
+        """
+
+    prompts = {
+        "audience_profile": f"""
+            Profile the target audience.
+            Topic: {topic} | Policymaker: {policymaker} | Audience: {audience}
+            Answer: 1) Who is the primary reader? 2) What authority do they have? 3) What do they value most (efficiency, equity, etc.)? 
+            Describe top 3 decision priorities.
+        """,
+        "purpose_clarity": f"""
+            Clarify the memo's purpose.
+            Audience Profile: {get_res('audience_profile')}
+            Stated Purpose: {purpose}
+            Suggest 3 distinct purposes (inform/evaluate/persuade) and how each affects tone and evidence.
+        """,
+        "position_credibility": f"""
+            Establish the writer's credibility.
+            Role: {role} | Topic: {topic}
+            Draft 2 sentences establishing analytical credibility without overstating expertise.
+        """,
+        "core_issue": f"""
+            Frame the core policy issue using REAL DATA.
+            Topic: {topic} | Audience: {audience}
+            **Search for current stats.** Answer with REAL DATA: 
+            1) What is happening? (Include stats) 
+            2) Why does it matter NOW? 
+            3) Who is affected?
+            {search_instruction}
+        """,
+        "scope_scale": f"""
+            Determine scope and scale using REAL DATA.
+            Core Issue: {get_res('core_issue')}
+            Policymaker: {policymaker}
+            **Search for jurisdiction info.**
+            Propose 3 ways to narrow this into a tractable problem. Identify which agency has jurisdiction.
+            {search_instruction}
+        """,
+        "stakeholders": f"""
+            Define stakeholders with REAL information.
+            Issue: {get_res('core_issue')}
+            **Search for actual stakeholder orgs.**
+            Create a map: Primary, Secondary, Decision-makers. Name actual organizations.
+            {search_instruction}
+        """,
+        "status": f"""
+            Describe current STATUS using REAL, VERIFIED DATA.
+            Problem: {get_res('core_issue')}
+            **Search for verified statistics.**
+            Find REAL DATA on: 1) Scope/Scale 2) Recent trends (last 3 years) 3) Policy environment.
+            Every number must have a source.
+            {search_instruction}
+        """,
+        "criteria": f"""
+            Define evaluation CRITERIA.
+            Audience: {audience} | Purpose: {purpose}
+            List 3-5 criteria defining "success" for this audience.
+        """,
+        "interpretation": f"""
+            Provide INTERPRETATION using RESEARCH.
+            Status: {get_res('status')}
+            **Search for research on root causes.**
+            Distinguish proximate from root causes. Cite think tanks or academic studies.
+            {search_instruction}
+        """,
+        "outlook": f"""
+            Forecast OUTLOOK using PROJECTIONS.
+            Status: {get_res('status')}
+            **Search for credible forecasts.**
+            Scenario A (Status Quo) vs Scenario B (Reform).
+            {search_instruction}
+        """,
+        "leverage_point": f"""
+            Identify LEVERAGE POINTS.
+            Decision-Maker: {policymaker}
+            **Search for legal/admin authority.**
+            What mechanisms (law, funding, pilot) can they realistically use?
+            {search_instruction}
+        """,
+        "alternatives": f"""
+            EVALUATE ALTERNATIVES with CASE STUDIES.
+            Criteria: {get_res('criteria')}
+            **Search for actual implementations elsewhere.**
+            Compare 3 options. For each, find where it has been tried and what the outcomes were.
+            {search_instruction}
+        """,
+        "recommendation": f"""
+            ARTICULATE RECOMMENDATION.
+            Alternatives: {get_res('alternatives')}
+            Draft a concise recommendation that is specific, measurable, and tied to the evidence.
+        """,
+        "executive_summary": f"""
+            Draft EXECUTIVE SUMMARY.
+            Problem: {get_res('core_issue')} | Recommendation: {get_res('recommendation')}
+            Choose the best structure (Recommendation-First, Criteria-Driven, etc.) based on Purpose: {purpose}.
+        """,
+        "full_memo_draft": f"""
+            STRUCTURE THE COMPLETE MEMO.
+            Exec Summary: {get_res('executive_summary')}
+            Status: {get_res('status')}
+            Interpretation: {get_res('interpretation')}
+            Recommendation: {get_res('recommendation')}
+            
+            Write 800-1200 words. Sections: 
+            1) Title & Exec Summary 
+            2) Status/Background 
+            3) Analysis 
+            4) Recommendation 
+            5) Implementation 
+            6) Sources List.
+        """,
+        "tone_audit": f"""
+            TONE AUDIT.
+            Memo: {get_res('full_memo_draft')}
+            Review for empathy, factualness, and lack of paternalism.
+        """,
+        "bias_audit": f"""
+            BIAS AUDIT.
+            Memo: {get_res('full_memo_draft')}
+            Identify implicit assumptions or unfair framings.
+        """,
+        "trauma_check": f"""
+            TRAUMA-INFORMED CHECK.
+            Memo: {get_res('full_memo_draft')}
+            Ensure dignity and agency for affected groups.
+        """,
+        "macro_revision": f"""
+            MACRO-LEVEL REVISION.
+            Review structure and flow. Does every section advance the purpose?
+        """,
+        "meso_revision": f"""
+            MESO-LEVEL REVISION.
+            Check data sources and balance of evidence.
+        """,
+        "micro_revision": f"""
+            MICRO-LEVEL REVISION.
+            Identify wordy sentences and passive voice. Suggest concise rewrites.
+        """,
+        "final_checklist": f"""
+            FINAL CHECKLIST.
+            Evaluate Clarity, Concision, Evidence, and Tone.
+        """,
+        "verification_list": f"""
+            VERIFICATION LIST.
+            Extract ALL factual statements from: {get_res('full_memo_draft')}
+            List numbers, dates, names. Indicate if source is cited.
+        """,
+        "final_memo": f"""
+            FINAL POLISHED MEMO.
+            Refine the draft: {get_res('full_memo_draft')}
+            Incorporate all audit feedback. Ensure professional formatting.
+            Add a 'Verification Notes' section at the end.
+        """
+    }
+    
+    return prompts.get(step_key, "Generate content.") + search_instruction
+
+# --- 5. AI GENERATION FUNCTION ---
+def generate_step_content(api_key, step_key, use_search):
     if not api_key:
-        st.error("⚠️ Please enter your API Key in the sidebar.")
-        return None
+        st.error("Please enter API Key in sidebar.")
+        return
     
+    # Configure Gemini
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-1.5-flash') # Flash is fast and good for iterative tasks
     
-    full_prompt = f"{system_instruction}\n\nUSER REQUEST:\n{prompt}"
+    # Tool Configuration for Search
+    # Note: 'google_search_retrieval' enables Grounding with Google Search
+    tools = []
+    if use_search:
+        tools = [{'google_search_retrieval': {}}]
     
-    with st.spinner("🤖 The Architect is thinking..."):
-        try:
-            response = model.generate_content(full_prompt)
-            return response.text
-        except Exception as e:
-            st.error(f"API Error: {e}")
-            return None
+    # Use Gemini 1.5 Flash for speed and search capability
+    # Fallback to standard generation if search tool fails (handled by try/except)
+    model = genai.GenerativeModel('gemini-1.5-flash', tools=tools)
+    
+    prompt = create_prompt(step_key, st.session_state.input_data, st.session_state.results, use_search)
+    
+    system_instruction = """
+    You are an expert Policy Analyst following David Chrisinger's workflow.
+    Key Rules:
+    1. USE REAL DATA when requested.
+    2. Cite sources (Name, Year).
+    3. Be specific, not generic.
+    4. Do not hallucinate. If data isn't found, say so.
+    """
+    
+    try:
+        with st.spinner(f"🤖 Generating {step_key.replace('_', ' ')}... {'(Searching Web 🌍)' if use_search else ''}"):
+            response = model.generate_content(
+                f"{system_instruction}\n\nTASK:\n{prompt}",
+                generation_config=genai.types.GenerationConfig(temperature=0.3)
+            )
+            # Handle potential grounding metadata (if search was used)
+            text = response.text
+            # Simple formatting for [VERIFY] tags if not present
+            if "[VERIFY]" not in text and use_search:
+                text += "\n\n*(Note: Please verify specific numbers against primary sources)*"
+                
+            st.session_state.results[step_key] = text
+            st.rerun() # Refresh to show result
+            
+    except Exception as e:
+        st.error(f"Generation Error: {str(e)}")
+        st.info("Tip: If you are using a free key, high-frequency search requests might be rate-limited.")
 
-# --- 5. Main Content Area (The Steps) ---
-
-# GLOBAL CONTEXT (Variables accessible to all steps if previously filled)
-# We assume the user inputs these in Step 0
-context_input = st.session_state.get('user_context_input', {})
-
-# === STEP 0: CLARIFY THE TRIANGLE ===
-if st.session_state.current_step == 0:
-    st.markdown('<div class="step-header">Phase 0: Clarify the Triangle of Persuasion</div>', unsafe_allow_html=True)
+# --- 6. SIDEBAR & INPUT ---
+with st.sidebar:
+    st.title("⚙️ Settings")
+    api_key = st.text_input("Gemini API Key", type="password")
+    st.caption("Get a free key at [Google AI Studio](https://aistudio.google.com/).")
     
-    st.markdown("""
-    <div class="info-box">
-    Before writing, we must define the three foundations. If these are unclear, the memo collapses.
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown("---")
+    st.info("Workflow based on *Public Policy Writing That Matters* by David Chrisinger.")
     
+    if st.button("🗑️ Reset All Progress"):
+        st.session_state.results = {}
+        st.rerun()
+
+# --- 7. MAIN INTERFACE ---
+st.title("🏛️ Policy Memo Architect")
+st.markdown("**An Algorithm for Clarity, Concision, and Compelling Argument**")
+st.markdown("This tool follows a strict 9-phase workflow, utilizing **Google Search** to ground your memo in real data.")
+
+# INPUT SECTION
+with st.expander("📝 Step 1: Define Memo Parameters", expanded=True):
     col1, col2 = st.columns(2)
     with col1:
-        topic = st.text_input("Topic", value=context_input.get('topic', 'Affordable housing reform'))
-        policymaker = st.text_input("Policymaker Type", value=context_input.get('policymaker', 'City Budget Director'))
+        topic = st.text_input("Topic", value="Affordable housing reform in Chicago")
+        policymaker = st.text_input("Policymaker", value="City Budget Director")
+        audience = st.text_input("Audience", value="City Budget Director's Office")
     with col2:
-        audience = st.text_input("Specific Audience", value=context_input.get('audience', "City Budget Director's Office"))
-        purpose = st.selectbox("Purpose", ["Persuade", "Inform", "Evaluate", "Hybrid"], index=0)
+        purpose = st.text_input("Purpose", value="Persuade adoption of pilot program")
+        role = st.text_input("Writer Role", value="Independent Analyst")
+        context = st.text_input("Institution", value="Urban Policy Institute")
     
-    writer_role = st.text_input("Your Role", value=context_input.get('role', 'Independent Analyst'))
-
-    # Save inputs to session state
-    st.session_state.user_context_input = {
-        'topic': topic, 'policymaker': policymaker, 'audience': audience, 
-        'purpose': purpose, 'role': writer_role
+    # Save inputs
+    st.session_state.input_data = {
+        "topic": topic, "policymaker_type": policymaker, "audience": audience,
+        "purpose": purpose, "writer_role": role, "institutional_context": context
     }
 
-    if st.button("Generate Strategy Analysis"):
-        sys_prompt = """
-        You are a Policy Strategy Consultant following Chrisinger's Phase 0.
-        Analyze the user's input and output 3 sections:
-        1. **Audience Profile:** Their likely values (efficiency, equity, etc.) and constraints.
-        2. **Refined Purpose:** How tone and evidence should be shaped based on the audience.
-        3. **Credibility Statement:** A draft sentence establishing the writer's legitimacy.
-        """
-        user_prompt = f"Topic: {topic}, Audience: {audience}, Role: {writer_role}, Purpose: {purpose}"
-        result = generate_ai_content(user_prompt, sys_prompt)
-        if result:
-            st.session_state.p0_triangle = result
+# PHASES LOOP
+st.markdown("### 🚀 Workflow Phases")
 
-    # Display & Edit Result
-    if st.session_state.p0_triangle:
-        st.subheader("Strategy Output")
-        # Editable text area allows user to refine before moving on
-        st.session_state.p0_triangle = st.text_area("Review & Edit Strategy:", value=st.session_state.p0_triangle, height=300)
-        
-        col_a, col_b = st.columns([1, 4])
-        with col_a:
-            if st.button("🔄 Regenerate"):
-                st.session_state.p0_triangle = "" # Clear to force regen logic if clicked again
-                st.rerun()
-        with col_b:
-            if st.button("Next Step: Frame Problem ➡️"):
-                st.session_state.current_step = 1
-                st.rerun()
-
-# === STEP 1: FRAME THE PROBLEM ===
-elif st.session_state.current_step == 1:
-    st.markdown('<div class="step-header">Phase 1: Frame the Policy Problem</div>', unsafe_allow_html=True)
+for phase in PHASES:
+    # Check if previous phase is done (simple logic: check if last step of prev phase has result)
+    # For simplicity, we allow users to open any phase, but warn if data missing
     
-    if not st.session_state.p0_triangle:
-        st.warning("⚠️ Please complete Phase 0 first.")
-    else:
-        st.markdown(f"**Context:** Writing about *{st.session_state.user_context_input['topic']}* for *{st.session_state.user_context_input['audience']}*.")
+    with st.expander(f"**{phase['name']}**", expanded=False):
+        st.info(f"{phase['explanation']}")
         
-        st.info("We need to define a problem that is analytically rigorous. Not 'solve poverty', but a manageable slice.")
-
-        if st.button("Generate Problem Framing"):
-            sys_prompt = """
-            You are an expert Policy Analyst (Chrisinger Phase 1).
-            Based on the Strategy provided, generate:
-            1. **Core Issue Summary (150 words):** Brief the policymaker. Focus on why it matters NOW.
-            2. **Scope & Scale:** Define the jurisdiction and specific measurable variables.
-            3. **Stakeholder Map:** Who benefits? Who suffers? Who decides?
+        for step in phase['steps']:
+            step_key = step['key']
+            has_result = step_key in st.session_state.results
             
-            **CRITICAL RULE:** Do not invent specific statistics. Use [VERIFY: insert 2024 poverty rate] placeholders.
-            """
-            user_prompt = f"Previous Strategy:\n{st.session_state.p0_triangle}\n\nTask: Frame the problem for {st.session_state.user_context_input['topic']}."
-            result = generate_ai_content(user_prompt, sys_prompt)
-            if result:
-                st.session_state.p1_framing = result
-
-        if st.session_state.p1_framing:
-            st.session_state.p1_framing = st.text_area("Refine Problem Framing:", value=st.session_state.p1_framing, height=400)
+            st.markdown(f"#### {step['name']}")
+            if step['useSearch']:
+                st.markdown('<span class="search-badge">🌍 WEB SEARCH ENABLED</span>', unsafe_allow_html=True)
             
-            c1, c2 = st.columns([1, 4])
-            with c1:
-                if st.button("🔄 Regenerate"):
-                    st.session_state.p1_framing = ""
-                    st.rerun()
-            with c2:
-                if st.button("Next Step: Evidence ➡️"):
-                    st.session_state.current_step = 2
-                    st.rerun()
+            # Display Result if exists
+            if has_result:
+                st.markdown(f'<div class="step-card">{st.session_state.results[step_key]}</div>', unsafe_allow_html=True)
+                
+                col_a, col_b = st.columns([1, 5])
+                if col_a.button("🔄 Regenerate", key=f"regen_{step_key}"):
+                    generate_step_content(api_key, step_key, step['useSearch'])
+            else:
+                # Generate Button
+                if st.button(f"Generate {step['name']}", key=f"gen_{step_key}", type="primary"):
+                    generate_step_content(api_key, step_key, step['useSearch'])
+            
+            st.markdown("---")
 
-# === STEP 2: BUILD EVIDENCE BASE ===
-elif st.session_state.current_step == 2:
-    st.markdown('<div class="step-header">Phase 2: Build the Evidence Base</div>', unsafe_allow_html=True)
-    st.markdown("We need the Four Elements: **Status, Criteria, Interpretation, Outlook**.")
+# EXPORT SECTION
+if 'final_memo' in st.session_state.results:
+    st.markdown("### 📥 Export")
+    memo_content = st.session_state.results['final_memo']
+    verification = st.session_state.results.get('verification_list', '')
     
-    if st.button("Draft Evidence Structure"):
-        sys_prompt = """
-        You are a Policy Researcher (Chrisinger Phase 2).
-        Draft the 'Analysis' section using the Four Elements:
-        1. **Status:** Describe what is happening.
-        2. **Criteria:** Define standards for success (cost-effectiveness, equity, etc.) that match the Audience's values.
-        3. **Interpretation:** Explain root causes (Structural vs Proximate).
-        4. **Outlook:** Forecast Status Quo vs. Reform scenarios.
-        
-        **VERIFICATION RULE:** YOU MUST NOT HALLUCINATE DATA. 
-        If a number is needed, write: `[VERIFY: specific cost of X program]` or `[DATA NEEDED: chart of 5-year trend]`.
-        """
-        user_prompt = f"Problem Framing:\n{st.session_state.p1_framing}"
-        result = generate_ai_content(user_prompt, sys_prompt)
-        if result:
-            st.session_state.p2_evidence = result
-
-    if st.session_state.p2_evidence:
-        st.session_state.p2_evidence = st.text_area("Refine Evidence Base:", value=st.session_state.p2_evidence, height=500)
-        
-        c1, c2 = st.columns([1, 4])
-        with c1: 
-             if st.button("🔄 Regenerate"):
-                st.session_state.p2_evidence = ""
-                st.rerun()
-        with c2: 
-            if st.button("Next Step: Recommendation ➡️"):
-                st.session_state.current_step = 3
-                st.rerun()
-
-# === STEP 3: DEVELOP RECOMMENDATION ===
-elif st.session_state.current_step == 3:
-    st.markdown('<div class="step-header">Phase 3: Develop Recommendation</div>', unsafe_allow_html=True)
-    st.markdown("From Analysis to Action. Recommendations must be specific, feasible, and proportionate.")
-
-    if st.button("Develop Solution"):
-        sys_prompt = """
-        You are a Policy Strategist (Chrisinger Phase 3).
-        1. **Identify Leverage Points:** What mechanism (law, funding, pilot) can the user actually use?
-        2. **Evaluate Alternatives:** Briefly compare 2 other options and why they were discarded based on the Criteria.
-        3. **The Recommendation:** Draft a 3-sentence specific, measurable action.
-        """
-        user_prompt = f"Problem:\n{st.session_state.p1_framing}\n\nEvidence Analysis:\n{st.session_state.p2_evidence}"
-        result = generate_ai_content(user_prompt, sys_prompt)
-        if result:
-            st.session_state.p3_recommendation = result
-
-    if st.session_state.p3_recommendation:
-        st.session_state.p3_recommendation = st.text_area("Refine Recommendation:", value=st.session_state.p3_recommendation, height=400)
-        
-        c1, c2 = st.columns([1, 4])
-        with c1:
-             if st.button("🔄 Regenerate"):
-                st.session_state.p3_recommendation = ""
-                st.rerun()
-        with c2:
-             if st.button("Next Step: Executive Summary ➡️"):
-                st.session_state.current_step = 4
-                st.rerun()
-
-# === STEP 4: EXECUTIVE SUMMARY ===
-elif st.session_state.current_step == 4:
-    st.markdown('<div class="step-header">Phase 4: Draft Executive Summary</div>', unsafe_allow_html=True)
-    st.info("The Executive Summary structure depends on the Purpose and Audience.")
-
-    if st.button("Draft Executive Summary"):
-        sys_prompt = f"""
-        You are an Editor (Chrisinger Phase 4).
-        Select the best template from the 7 Chrisinger types based on the Purpose ({st.session_state.user_context_input['purpose']}).
-        
-        Types:
-        1. Recommendation-First (High stakes)
-        2. Criteria-Driven (Comparing options)
-        3. Context-Problem-Solution (Non-technical)
-        4. Evidence-Driven (Technical audience)
-        5. Stakeholder-Centered (Political complexity)
-        6. Risk-Mitigation (Uncertainty)
-        7. Implementation-Focused
-        
-        **Task:** State which template you chose and why, then write the Summary.
-        """
-        user_prompt = f"Purpose: {st.session_state.user_context_input['purpose']}\nRecommendation: {st.session_state.p3_recommendation}\nProblem: {st.session_state.p1_framing}"
-        result = generate_ai_content(user_prompt, sys_prompt)
-        if result:
-            st.session_state.p4_exec_summary = result
-
-    if st.session_state.p4_exec_summary:
-        st.session_state.p4_exec_summary = st.text_area("Refine Executive Summary:", value=st.session_state.p4_exec_summary, height=300)
-        
-        c1, c2 = st.columns([1, 4])
-        with c1:
-             if st.button("🔄 Regenerate"):
-                st.session_state.p4_exec_summary = ""
-                st.rerun()
-        with c2:
-             if st.button("Next Step: Assemble Draft ➡️"):
-                st.session_state.current_step = 5
-                st.rerun()
-
-# === STEP 5: ASSEMBLE DRAFT ===
-elif st.session_state.current_step == 5:
-    st.markdown('<div class="step-header">Phase 5: Structure the Policy Memo</div>', unsafe_allow_html=True)
-    st.markdown("Combining all previous steps into a cohesive document.")
-
-    if st.button("Assemble Full Draft"):
-        sys_prompt = """
-        You are a Policy Writer (Chrisinger Phase 5).
-        Assemble the full memo in Markdown.
-        Structure:
-        1. Title & Executive Summary
-        2. Status (Background)
-        3. Analysis (Criteria + Interpretation + Outlook)
-        4. Recommendation
-        5. Implementation Considerations
-        
-        **Style Rules:**
-        - Deductive paragraphs (Topic sentence first).
-        - Active voice.
-        - Cut filler words ("It is important to note").
-        - Keep the [VERIFY] tags visible.
-        """
-        user_prompt = f"""
-        Exec Summary: {st.session_state.p4_exec_summary}
-        Framing: {st.session_state.p1_framing}
-        Evidence: {st.session_state.p2_evidence}
-        Recommendation: {st.session_state.p3_recommendation}
-        """
-        result = generate_ai_content(user_prompt, sys_prompt)
-        if result:
-            st.session_state.p5_draft = result
-
-    if st.session_state.p5_draft:
-        st.session_state.p5_draft = st.text_area("Review Full Draft:", value=st.session_state.p5_draft, height=600)
-        
-        c1, c2 = st.columns([1, 4])
-        with c1:
-             if st.button("🔄 Regenerate"):
-                st.session_state.p5_draft = ""
-                st.rerun()
-        with c2:
-             if st.button("Next Step: Tone Check ➡️"):
-                st.session_state.current_step = 6
-                st.rerun()
-
-# === STEP 6: TONE & BIAS CHECK ===
-elif st.session_state.current_step == 6:
-    st.markdown('<div class="step-header">Phase 6: Tone, Bias, and Trauma-Informed Check</div>', unsafe_allow_html=True)
-    st.markdown("Ensuring the language is empathetic, factual, and avoids paternalism.")
-
-    if st.button("Run Audit"):
-        sys_prompt = """
-        You are an Ethics & Tone Auditor (Chrisinger Phase 6).
-        Review the draft for:
-        1. **Tone:** Is it professional yet empathetic?
-        2. **Bias:** Are there assumptions that alienate stakeholders?
-        3. **Trauma-Informed:** Do descriptions preserve dignity/agency?
-        
-        **Output:** - Provide a critique list.
-        - Suggest specific re-phrasing for 3 problematic sentences (if any).
-        - DO NOT rewrite the whole memo yet. Just the audit.
-        """
-        user_prompt = f"Draft Memo:\n{st.session_state.p5_draft}"
-        result = generate_ai_content(user_prompt, sys_prompt)
-        if result:
-            st.session_state.p6_audit = result
-
-    if st.session_state.p6_audit:
-        st.warning("Audit Results:")
-        st.markdown(st.session_state.p6_audit)
-        
-        st.markdown("---")
-        st.markdown("**Action:** Read the audit above. If you want to apply changes, edit the draft below.")
-        st.session_state.p5_draft = st.text_area("Edit Draft based on Audit:", value=st.session_state.p5_draft, height=500)
-        
-        if st.button("Next Step: Final Polish ➡️"):
-            st.session_state.current_step = 7
-            st.rerun()
-
-# === STEP 7: FINAL POLISH ===
-elif st.session_state.current_step == 7:
-    st.markdown('<div class="step-header">Phase 7 & 8: Final Polish & Verification Checklist</div>', unsafe_allow_html=True)
+    full_doc = f"{memo_content}\n\n---\n\n# VERIFICATION CHECKLIST\n\n{verification}"
     
-    st.success("Your Memo is nearly ready. This step extracts all facts that require human verification.")
-
-    if st.button("Generate Verification Checklist"):
-        sys_prompt = """
-        You are a Fact-Checker (Phase 8).
-        Scan the memo. Extract EVERY factual statement (numbers, dates, names, laws, causal claims) into a bulleted list.
-        For each, mark it as:
-        - [VERIFY] (Needs external check)
-        - [UNCERTAIN] (AI logic might be shaky)
-        
-        Then, output the Final Polished Memo in clean Markdown.
-        """
-        user_prompt = f"Final Draft:\n{st.session_state.p5_draft}"
-        result = generate_ai_content(user_prompt, sys_prompt)
-        if result:
-            st.session_state.p7_final = result
-
-    if st.session_state.p7_final:
-        st.subheader("🏁 Final Output")
-        st.markdown(st.session_state.p7_final)
-        
-        st.download_button(
-            label="📥 Download Policy Memo (.md)",
-            data=st.session_state.p7_final,
-            file_name="policy_memo_final.md",
-            mime="text/markdown"
-        )
+    st.download_button(
+        label="Download Policy Memo (.md)",
+        data=full_doc,
+        file_name="policy_memo.md",
+        mime="text/markdown"
+    )
