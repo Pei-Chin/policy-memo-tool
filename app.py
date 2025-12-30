@@ -340,9 +340,10 @@ def generate_step_content(api_key, step_key, use_search):
     
     # Tool Configuration for Search
     # Note: 'google_search_retrieval' enables Grounding with Google Search
+    # Tool Configuration for Search
     tools = []
     if use_search:
-        tools = [{'google_search_retrieval': {}}]
+        tools = [{'google_search': {}}]  
     
     # Use Gemini 1.5 Flash for speed and search capability
     # Fallback to standard generation if search tool fails (handled by try/except)
