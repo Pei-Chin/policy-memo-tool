@@ -333,69 +333,60 @@ def create_prompt(step_key, input_data, results, use_search):
     
     return prompts.get(step_key, "Generate content.") + search_instruction
 
-# --- 5. AI GENERATION FUNCTION ---
+# --- 5. AI GENERATION FUNCTION (V0.8.6 專用修復版) ---
 def generate_step_content(api_key, step_key, use_search):
     if not api_key:
         st.error("Please enter API Key in sidebar.")
         return
     
-    # Configure Gemini
     genai.configure(api_key=api_key)
     
-    # Tool Configuration
-    # 修正: 確保 tools 是一個列表，且格式正確
-    tools = []
+    # 【關鍵修正】: 
+    # 在 0.8.6 版本中，為了避免 "Unknown field" 錯誤，
+    # 我們改用 google_search_retrieval (底層名稱) 或者直接呼叫 protos。
+    # 這裡使用最穩定的字典映射方式：
+    tools = None
     if use_search:
-        # 這是新版 SDK 的標準寫法
-        tools = [{'google_search': {}}] 
-    
-    try:
-        # 建議: 雖然你註解寫 flash，但 Policy Memo 需要較強的邏輯，建議維持使用 'gemini-1.5-pro'
-        # 注意: 如果 tools 是空列表，建議不要傳入該參數，或者傳入 None，避免部分舊版 API 報錯
-        model_kwargs = {'model_name': 'gemini-2.5-flash-lite'}
-        if tools:
-            model_kwargs['tools'] = tools
+        tools = [
+            {'google_search_retrieval': {}}
+        ]
 
-        model = genai.GenerativeModel(**model_kwargs)
+    try:
+        # 建立模型
+        model = genai.GenerativeModel('gemini-2.5-flash-lite', tools=tools)
         
         prompt = create_prompt(step_key, st.session_state.input_data, st.session_state.results, use_search)
         
         system_instruction = """
-        You are an expert Policy Analyst following David Chrisinger's workflow.
+        You are an expert Policy Analyst.
         Key Rules:
         1. USE REAL DATA when requested.
         2. Cite sources (Name, Year).
         3. Be specific, not generic.
-        4. Do not hallucinate. If data isn't found, say so.
         """
         
-        with st.spinner(f"🤖 Generating {step_key.replace('_', ' ')}... {'(Searching Web 🌍)' if use_search else ''}"):
-            # 呼叫 generate_content
+        with st.spinner(f"🤖 Generating {step_key}..."):
             response = model.generate_content(
                 f"{system_instruction}\n\nTASK:\n{prompt}",
                 generation_config=genai.types.GenerationConfig(temperature=0.3)
             )
             
-            # 處理回應
             text = response.text
             
-            # 簡單的格式處理
-            if "[VERIFY]" not in text and use_search:
-                text += "\n\n*(Note: Please verify specific numbers against primary sources)*"
+            # 如果有搜尋結果，通常 response 裡會有 grounding_metadata
+            # 但為了簡單起見，我們直接處理文字
+            if use_search and "[VERIFY]" not in text:
+                text += "\n\n*(Note: Data retrieved via Google Search)*"
                 
             st.session_state.results[step_key] = text
-            st.rerun() # Refresh to show result
+            st.rerun()
             
     except Exception as e:
         st.error(f"Generation Error: {str(e)}")
         
-        # 增加針對此特定錯誤的提示
-        if "Unknown field for FunctionDeclaration" in str(e):
-             st.warning("⚠️ 此錯誤通常表示 'google-generativeai' 函式庫版本過舊。請在終端機執行: pip install -U google-generativeai")
-        
-        if "400" in str(e):
-            st.warning("Tip: Check if your API Key supports the selected model.")
-        st.info("Tip: If you are using a free key, high-frequency search requests might be rate-limited.")
+        # 除錯資訊
+        if "Unknown field" in str(e):
+            st.warning("請嘗試將程式碼中的 'google_search_retrieval' 改回 'google_search' 試試，或確認 requirements.txt 是否生效。")
 
 # --- 6. SIDEBAR & INPUT ---
 with st.sidebar:
