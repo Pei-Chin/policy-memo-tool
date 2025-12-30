@@ -346,7 +346,7 @@ def generate_step_content(api_key, step_key, use_search):
     
     # Use Gemini 1.5 Flash for speed and search capability
     # Fallback to standard generation if search tool fails (handled by try/except)
-    model = genai.GenerativeModel('gemini-1.5-flash', tools=tools)
+    model = genai.GenerativeModel('gemini-2.5-flash', tools=tools)
     
     prompt = create_prompt(step_key, st.session_state.input_data, st.session_state.results, use_search)
     
