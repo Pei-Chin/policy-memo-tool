@@ -1,5 +1,6 @@
-import streamlit as st
 import google.generativeai as genai
+st.write(f"目前 Google SDK 版本: {genai.__version__}") 
+import streamlit as st
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
 import time
 import json
