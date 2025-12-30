@@ -349,7 +349,7 @@ def generate_step_content(api_key, step_key, use_search):
     try:
         # 建議: 雖然你註解寫 flash，但 Policy Memo 需要較強的邏輯，建議維持使用 'gemini-1.5-pro'
         # 注意: 如果 tools 是空列表，建議不要傳入該參數，或者傳入 None，避免部分舊版 API 報錯
-        model_kwargs = {'model_name': 'gemini-1.5-pro'}
+        model_kwargs = {'model_name': 'gemini-2.5-flash-lite'}
         if tools:
             model_kwargs['tools'] = tools
 
