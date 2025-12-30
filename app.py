@@ -339,15 +339,20 @@ def generate_step_content(api_key, step_key, use_search):
     genai.configure(api_key=api_key)
     
     # Tool Configuration
-    # 修正重點 1: 確保 tools 變數正確初始化，若不使用搜尋則設為 None
-    tools = None
+    # 修正: 確保 tools 是一個列表，且格式正確
+    tools = []
     if use_search:
+        # 這是新版 SDK 的標準寫法
         tools = [{'google_search': {}}] 
     
-    # 修正重點 2: 使用正確的模型名稱 'gemini-1.5-flash'
-    
     try:
-        model = genai.GenerativeModel('gemini-1.5-pro', tools=tools)
+        # 建議: 雖然你註解寫 flash，但 Policy Memo 需要較強的邏輯，建議維持使用 'gemini-1.5-pro'
+        # 注意: 如果 tools 是空列表，建議不要傳入該參數，或者傳入 None，避免部分舊版 API 報錯
+        model_kwargs = {'model_name': 'gemini-1.5-pro'}
+        if tools:
+            model_kwargs['tools'] = tools
+
+        model = genai.GenerativeModel(**model_kwargs)
         
         prompt = create_prompt(step_key, st.session_state.input_data, st.session_state.results, use_search)
         
@@ -379,9 +384,13 @@ def generate_step_content(api_key, step_key, use_search):
             
     except Exception as e:
         st.error(f"Generation Error: {str(e)}")
-        # 增加具體的除錯建議
+        
+        # 增加針對此特定錯誤的提示
+        if "Unknown field for FunctionDeclaration" in str(e):
+             st.warning("⚠️ 此錯誤通常表示 'google-generativeai' 函式庫版本過舊。請在終端機執行: pip install -U google-generativeai")
+        
         if "400" in str(e):
-            st.warning("Tip: Check if your API Key supports the selected model, or try updating the google-generativeai library.")
+            st.warning("Tip: Check if your API Key supports the selected model.")
         st.info("Tip: If you are using a free key, high-frequency search requests might be rate-limited.")
 
 # --- 6. SIDEBAR & INPUT ---
