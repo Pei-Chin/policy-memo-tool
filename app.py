@@ -353,7 +353,7 @@ def generate_step_content(api_key, step_key, use_search):
 
     try:
         # 建立模型
-        model = genai.GenerativeModel('gemini-2.5-flash-lite', tools=tools)
+        model = genai.GenerativeModel('gemini-1.5-flash', tools=tools)
         
         prompt = create_prompt(step_key, st.session_state.input_data, st.session_state.results, use_search)
         
