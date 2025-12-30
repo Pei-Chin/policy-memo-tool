@@ -347,7 +347,7 @@ def generate_step_content(api_key, step_key, use_search):
     # 修正重點 2: 使用正確的模型名稱 'gemini-1.5-flash'
     # 注意: 'gemini-2.5-flash' 目前不存在，請使用 1.5 或 2.0-flash-exp
     try:
-        model = genai.GenerativeModel('gemini-2.0-flash', tools=tools)
+        model = genai.GenerativeModel('gemini-1.5-flash', tools=tools)
         
         prompt = create_prompt(step_key, st.session_state.input_data, st.session_state.results, use_search)
         
